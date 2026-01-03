@@ -1,0 +1,113 @@
+spring:
+  config:
+    import: optional:file:.env
+  main:
+    allow-circular-references: true
+  application:
+    name: payment-orchestration-service
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/payment_gateway}
+    username: ${DATABASE_USERNAME:postgres}
+    password: ${DATABASE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+
+server:
+  port: 8080
+  error:
+    include-message: always
+    include-binding-errors: always
+
+# Authorize.Net Configuration
+authorize:
+  net:
+    api-login-id: ${AUTHORIZE_NET_API_LOGIN_ID:5YMD3vK4jad}
+    transaction-key: ${AUTHORIZE_NET_TRANSACTION_KEY:8wZej84z62XZ49DQ}
+    environment: ${AUTHORIZE_NET_ENVIRONMENT:SANDBOX} # SANDBOX or PRODUCTION
+    webhook-signature-key: ${AUTHORIZE_NET_WEBHOOK_SIGNATURE_KEY:D110E2EDB226D49622CF3C743B914F8D650BF228C859DE94D91178F55999BEC445BB8346358370D582DEDE9516AA91296B6B5BE9534B54A85D22841F5F02591C}
+
+# Application Configuration
+app:
+  idempotency:
+    enabled: true
+  webhook:
+    async-processing: true
+    queue-size: 1000
+    max-retry-count: 3
+
+# Resilience4j Configuration
+resilience4j:
+  retry:
+    configs:
+      default:
+        maxAttempts: 3
+        waitDuration: 1000
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+        retryExceptions:
+          - java.net.SocketTimeoutException
+          - java.net.ConnectException
+          - java.util.concurrent.TimeoutException
+          - com.paymentgateway.api.exception.GatewayException
+    instances:
+      gatewayRetry:
+        baseConfig: default
+        maxAttempts: 3
+        waitDuration: 1000
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+  
+  circuitbreaker:
+    configs:
+      default:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 10s
+        failureRateThreshold: 50
+        slowCallRateThreshold: 100
+        slowCallDurationThreshold: 2s
+    instances:
+      gatewayCircuitBreaker:
+        baseConfig: default
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+  
+  timelimiter:
+    configs:
+      default:
+        timeoutDuration: 30s
+        cancelRunningFuture: true
+    instances:
+      gatewayTimeLimiter:
+        baseConfig: default
+        timeoutDuration: 30s
+
+logging:
+  level:
+    com.paymentgateway: DEBUG
+    org.springframework.web: INFO
+    net.authorize: INFO
+    io.github.resilience4j: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId}] [%X{operation}] %logger{36} - %msg%n"
+

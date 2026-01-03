@@ -1,0 +1,43 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: 
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        format_sql: true
+        use_jdbc_metadata_defaults: false
+  flyway:
+    enabled: false
+  h2:
+    console:
+      enabled: true
+
+app:
+  repository:
+    type: jpa
+  webhook:
+    max-retry-count: 3
+
+authorize:
+  net:
+    api-login-id: test-api-login-id
+    transaction-key: test-transaction-key
+    environment: SANDBOX
+    webhook-signature-key: D110E2EDB226D49622CF3C743B914F8D650BF228C859DE94D91178F55999BEC445BB8346358370D582DEDE9516AA91296B6B5BE9534B54A85D22841F5F02591C
+
+logging:
+  level:
+    com.paymentgateway: DEBUG
+    org.springframework.web: DEBUG
+    org.hibernate.SQL: DEBUG
+
+
+
+

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Authorize.Net Accept.js Sandbox</title>
+
+  <!-- Accept.js SANDBOX -->
+  <script
+    type="text/javascript"
+    src="https://jstest.authorize.net/v1/Accept.js"
+    charset="utf-8">
+  </script>
+</head>
+
+<body>
+  <h3>Accept.js Sandbox Token Generator</h3>
+
+  <form id="paymentForm">
+    <label>
+      Card Number
+      <input type="text" id="cardNumber" value="4111111111111111" />
+    </label>
+    <br/><br/>
+
+    <label>
+      Expiry (MMYY)
+      <input type="text" id="exp" value="1227" />
+    </label>
+    <br/><br/>
+
+    <label>
+      CVV
+      <input type="text" id="cvv" value="123" />
+    </label>
+    <br/><br/>
+
+    <button type="submit">Generate Token</button>
+  </form>
+
+  <pre id="output"></pre>
+
+  <script>
+    const authData = {
+      clientKey: "2Q98dLVCm4r2skVUpQJhDWtz836Be37C4q7cx5Rj3Z7Pw3Ug6AKfgu5DLrdR5hnY",
+      apiLoginID: "5YMD3vK4jad"
+    };
+
+    document.getElementById("paymentForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+
+      const cardData = {
+        cardNumber: document.getElementById("cardNumber").value,
+        month: document.getElementById("exp").value.substring(0, 2),
+        year: document.getElementById("exp").value.substring(2, 4),
+        cardCode: document.getElementById("cvv").value
+      };
+
+      const secureData = {
+        authData: authData,
+        cardData: cardData
+      };
+
+      Accept.dispatchData(secureData, responseHandler);
+    });
+
+    function responseHandler(response) {
+      const output = document.getElementById("output");
+
+      if (response.messages.resultCode === "Error") {
+        output.textContent = JSON.stringify(response, null, 2);
+        return;
+      }
+
+      output.textContent = JSON.stringify({
+        dataDescriptor: response.opaqueData.dataDescriptor,
+        dataValue: response.opaqueData.dataValue
+      }, null, 2);
+    }
+  </script>
+</body>
+</html>
