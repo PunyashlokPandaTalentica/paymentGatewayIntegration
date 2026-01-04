@@ -3,6 +3,7 @@ package com.paymentgateway.api.controller;
 import com.paymentgateway.api.dto.CreatePaymentRequest;
 import com.paymentgateway.api.dto.ErrorResponse;
 import com.paymentgateway.api.dto.PaymentResponse;
+import com.paymentgateway.api.service.RequestSanitizationService;
 import com.paymentgateway.domain.model.Payment;
 import com.paymentgateway.repository.PaymentRepository;
 import com.paymentgateway.repository.mapper.PaymentMapper;
@@ -38,6 +39,9 @@ public class PaymentController {
     @Autowired
     private PaymentMapper paymentMapper;
 
+    @Autowired
+    private RequestSanitizationService sanitizationService;
+
     @PostMapping("/orders/{orderId}/payments")
     @Operation(
             summary = "Create a payment for an order",
@@ -65,7 +69,9 @@ public class PaymentController {
             @Parameter(description = "Idempotency key to prevent duplicate payments. If not provided, a new key will be generated.", required = false)
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
         try {
-            UUID orderUuid = UUID.fromString(orderId);
+            // Validate and sanitize UUID
+            String sanitizedOrderId = sanitizationService.validateUuid(orderId, "orderId");
+            UUID orderUuid = UUID.fromString(sanitizedOrderId);
 
             // Generate idempotency key if not provided
             if (idempotencyKey == null || idempotencyKey.isBlank()) {

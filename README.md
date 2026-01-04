@@ -84,6 +84,51 @@ authorize:
     webhook-signature-key: ${AUTHORIZE_NET_WEBHOOK_SIGNATURE_KEY}
 ```
 
+## Authentication
+
+The API uses OAuth2 JWT Bearer token authentication. All `/v1/**` endpoints require a valid JWT token in the `Authorization` header:
+
+```
+Authorization: Bearer <your-jwt-token>
+```
+
+### Getting JWT Tokens
+
+**Option 1: Using Auth0 (Recommended)**
+
+See [AUTH0_SETUP.md](AUTH0_SETUP.md) for a complete guide on setting up Auth0 authentication.
+
+Quick setup:
+1. Configure Auth0 API and Machine-to-Machine application
+2. Set environment variables:
+   ```bash
+   OAUTH2_ISSUER_URI=https://YOUR_TENANT.us.auth0.com/
+   OAUTH2_AUDIENCE=https://api.paymentgateway.com
+   SECURITY_ENABLED=true
+   ```
+3. Get token using the helper script:
+   ```bash
+   ./scripts/get-auth0-token.sh
+   ```
+
+**Option 2: Disable Security (Development Only)**
+
+For local development without authentication:
+
+```bash
+SECURITY_ENABLED=false
+```
+
+⚠️ **Warning**: Never disable security in production!
+
+### Public Endpoints
+
+The following endpoints are publicly accessible (no authentication required):
+- `/v1/webhooks/**` - Webhook endpoints
+- `/actuator/health` - Health check
+- `/swagger-ui/**` - API documentation
+- `/v3/api-docs/**` - OpenAPI specification
+
 ## Idempotency
 
 All POST endpoints support idempotency via the `Idempotency-Key` header:

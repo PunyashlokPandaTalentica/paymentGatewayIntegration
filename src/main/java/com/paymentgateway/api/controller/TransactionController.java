@@ -4,6 +4,7 @@ import com.paymentgateway.api.dto.CaptureRequest;
 import com.paymentgateway.api.dto.ErrorResponse;
 import com.paymentgateway.api.dto.PurchaseTransactionRequest;
 import com.paymentgateway.api.dto.TransactionResponse;
+import com.paymentgateway.api.service.RequestSanitizationService;
 import com.paymentgateway.domain.enums.TransactionState;
 import com.paymentgateway.domain.model.PaymentTransaction;
 import com.paymentgateway.repository.PaymentTransactionRepository;
@@ -19,6 +20,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -41,6 +43,10 @@ public class TransactionController {
     
     @Autowired
     private PaymentTransactionMapper transactionMapper;
+
+    @Autowired
+    @Lazy
+    private RequestSanitizationService sanitizationService;
 
     @PostMapping("/{paymentId}/transactions/purchase")
     @Operation(
@@ -68,12 +74,18 @@ public class TransactionController {
             @Parameter(description = "Idempotency key to prevent duplicate transactions. If not provided, a new key will be generated.", required = false)
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
         try {
-            UUID paymentUuid = UUID.fromString(paymentId);
+            // Validate and sanitize UUID
+            String sanitizedPaymentId = sanitizationService.validateUuid(paymentId, "paymentId");
+            UUID paymentUuid = UUID.fromString(sanitizedPaymentId);
+            
+            // Sanitize payment method token
+            String sanitizedToken = sanitizationService.sanitizePaymentMethodToken(request.getPaymentMethodToken());
+            
             UUID traceId = UUID.randomUUID();
 
             PaymentTransaction transaction = orchestratorService.processPurchase(
                     paymentUuid,
-                    request.getPaymentMethodToken(),
+                    sanitizedToken,
                     traceId
             );
 
@@ -119,12 +131,18 @@ public class TransactionController {
             @Parameter(description = "Idempotency key to prevent duplicate transactions. If not provided, a new key will be generated.", required = false)
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
         try {
-            UUID paymentUuid = UUID.fromString(paymentId);
+            // Validate and sanitize UUID
+            String sanitizedPaymentId = sanitizationService.validateUuid(paymentId, "paymentId");
+            UUID paymentUuid = UUID.fromString(sanitizedPaymentId);
+            
+            // Sanitize payment method token
+            String sanitizedToken = sanitizationService.sanitizePaymentMethodToken(request.getPaymentMethodToken());
+            
             UUID traceId = UUID.randomUUID();
 
             PaymentTransaction transaction = orchestratorService.processAuthorize(
                     paymentUuid,
-                    request.getPaymentMethodToken(),
+                    sanitizedToken,
                     traceId
             );
 
@@ -173,8 +191,11 @@ public class TransactionController {
             @Parameter(description = "Idempotency key to prevent duplicate transactions. If not provided, a new key will be generated.", required = false)
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
         try {
-            UUID paymentUuid = UUID.fromString(paymentId);
-            UUID transactionUuid = UUID.fromString(transactionId);
+            // Validate and sanitize UUIDs
+            String sanitizedPaymentId = sanitizationService.validateUuid(paymentId, "paymentId");
+            String sanitizedTransactionId = sanitizationService.validateUuid(transactionId, "transactionId");
+            UUID paymentUuid = UUID.fromString(sanitizedPaymentId);
+            UUID transactionUuid = UUID.fromString(sanitizedTransactionId);
             UUID traceId = UUID.randomUUID();
 
             PaymentTransaction transaction = orchestratorService.processCapture(
@@ -223,7 +244,9 @@ public class TransactionController {
             @Parameter(description = "Unique identifier of the payment (UUID)", required = true, example = "123e4567-e89b-12d3-a456-426614174000")
             @PathVariable String paymentId) {
         try {
-            UUID paymentUuid = UUID.fromString(paymentId);
+            // Validate and sanitize UUID
+            String sanitizedPaymentId = sanitizationService.validateUuid(paymentId, "paymentId");
+            UUID paymentUuid = UUID.fromString(sanitizedPaymentId);
             var entities = transactionRepository.findByPaymentIdOrderByCreatedAtAsc(paymentUuid);
             List<PaymentTransaction> transactions = transactionMapper.toDomainList(entities);
 

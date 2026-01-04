@@ -3,6 +3,7 @@ package com.paymentgateway.api.controller;
 import com.paymentgateway.api.dto.CreateOrderRequest;
 import com.paymentgateway.api.dto.ErrorResponse;
 import com.paymentgateway.api.dto.OrderResponse;
+import com.paymentgateway.api.service.RequestSanitizationService;
 import com.paymentgateway.domain.enums.OrderStatus;
 import com.paymentgateway.domain.model.Order;
 import com.paymentgateway.service.PaymentOrchestratorService;
@@ -34,6 +35,9 @@ public class OrderController {
     @Lazy
     private PaymentOrchestratorService orchestratorService;
 
+    @Autowired
+    private RequestSanitizationService sanitizationService;
+
     @PostMapping
     @Operation(
             summary = "Create a new order",
@@ -54,12 +58,15 @@ public class OrderController {
     })
     public ResponseEntity<?> createOrder(@Valid @RequestBody CreateOrderRequest request) {
         try {
+            // Sanitize input to prevent XSS and injection attacks
+            CreateOrderRequest sanitizedRequest = sanitizationService.sanitize(request);
+
             Order order = Order.builder()
                     .id(UUID.randomUUID())
-                    .merchantOrderId(request.getMerchantOrderId())
-                    .amount(request.getAmount())
-                    .description(request.getDescription())
-                    .customer(request.getCustomer())
+                    .merchantOrderId(sanitizedRequest.getMerchantOrderId())
+                    .amount(sanitizedRequest.getAmount())
+                    .description(sanitizedRequest.getDescription())
+                    .customer(sanitizedRequest.getCustomer())
                     .status(OrderStatus.CREATED)
                     .createdAt(Instant.now())
                     .updatedAt(Instant.now())
@@ -111,7 +118,9 @@ public class OrderController {
             @Parameter(description = "Unique identifier of the order (UUID)", required = true, example = "123e4567-e89b-12d3-a456-426614174000")
             @PathVariable String orderId) {
         try {
-            UUID id = UUID.fromString(orderId);
+            // Validate and sanitize UUID
+            String sanitizedOrderId = sanitizationService.validateUuid(orderId, "orderId");
+            UUID id = UUID.fromString(sanitizedOrderId);
             Order order = orchestratorService.getOrderById(id);
 
             OrderResponse response = OrderResponse.builder()

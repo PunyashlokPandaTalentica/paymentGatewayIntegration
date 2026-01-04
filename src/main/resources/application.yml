@@ -26,6 +26,15 @@ spring:
     enabled: true
     baseline-on-migrate: true
     locations: classpath:db/migration
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Use either issuer-uri (for OIDC discovery) or jwk-set-uri (for direct JWK set)
+          issuer-uri: ${OAUTH2_ISSUER_URI:https://dev-shctyxlbewyspju1.us.auth0.com/}
+          jwk-set-uri: ${OAUTH2_JWK_SET_URI:}
+          # Audience validation (optional)
+          # audience: ${OAUTH2_AUDIENCE:}
 
 server:
   port: 8080
@@ -49,6 +58,11 @@ app:
     async-processing: true
     queue-size: 1000
     max-retry-count: 3
+  recurring-payment:
+    check-interval: 3600000  # Check for due subscriptions every hour (in milliseconds)
+  security:
+    enabled: ${SECURITY_ENABLED:true}
+    public-endpoints: /v1/webhooks/**,/actuator/health,/swagger-ui/**,/v3/api-docs/**
 
 # Resilience4j Configuration
 resilience4j:

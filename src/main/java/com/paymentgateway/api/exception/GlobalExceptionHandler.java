@@ -5,7 +5,13 @@ import java.util.UUID;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.oauth2.jwt.JwtException;
+import org.springframework.security.oauth2.server.resource.InvalidBearerTokenException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -33,6 +39,23 @@ public class GlobalExceptionHandler {
                 .error(ErrorResponse.ErrorDetail.builder()
                         .code("VALIDATION_ERROR")
                         .message(message)
+                        .retryable(false)
+                        .traceId(traceId)
+                        .build())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ErrorResponse> handleMissingRequestHeaderException(MissingRequestHeaderException e) {
+        String traceId = getOrCreateTraceId();
+        log.warn("Missing required header: {}", e.getHeaderName());
+
+        ErrorResponse error = ErrorResponse.builder()
+                .error(ErrorResponse.ErrorDetail.builder()
+                        .code("MISSING_HEADER")
+                        .message("Missing required header: " + e.getHeaderName())
                         .retryable(false)
                         .traceId(traceId)
                         .build())
@@ -200,6 +223,96 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public void handleStaticNotFound() {
         // IMPORTANT: do nothing
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ErrorResponse> handleAuthenticationException(AuthenticationException e) {
+        String traceId = getOrCreateTraceId();
+        log.warn("Authentication failed: {}", e.getMessage());
+
+        ErrorResponse error = ErrorResponse.builder()
+                .error(ErrorResponse.ErrorDetail.builder()
+                        .code("UNAUTHORIZED")
+                        .message("Authentication required. Please provide a valid OAuth2 token.")
+                        .retryable(false)
+                        .traceId(traceId)
+                        .details(e.getMessage())
+                        .build())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
+    }
+
+    @ExceptionHandler(InvalidBearerTokenException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidBearerTokenException(InvalidBearerTokenException e) {
+        String traceId = getOrCreateTraceId();
+        log.warn("Invalid bearer token: {}", e.getMessage());
+
+        ErrorResponse error = ErrorResponse.builder()
+                .error(ErrorResponse.ErrorDetail.builder()
+                        .code("INVALID_TOKEN")
+                        .message("Invalid or expired OAuth2 token")
+                        .retryable(false)
+                        .traceId(traceId)
+                        .details(e.getMessage())
+                        .build())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
+    }
+
+    @ExceptionHandler(JwtException.class)
+    public ResponseEntity<ErrorResponse> handleJwtException(JwtException e) {
+        String traceId = getOrCreateTraceId();
+        log.warn("JWT validation failed: {}", e.getMessage());
+
+        ErrorResponse error = ErrorResponse.builder()
+                .error(ErrorResponse.ErrorDetail.builder()
+                        .code("INVALID_TOKEN")
+                        .message("JWT token validation failed")
+                        .retryable(false)
+                        .traceId(traceId)
+                        .details(e.getMessage())
+                        .build())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDeniedException(AccessDeniedException e) {
+        String traceId = getOrCreateTraceId();
+        log.warn("Access denied: {}", e.getMessage());
+
+        ErrorResponse error = ErrorResponse.builder()
+                .error(ErrorResponse.ErrorDetail.builder()
+                        .code("FORBIDDEN")
+                        .message("Access denied. Insufficient permissions.")
+                        .retryable(false)
+                        .traceId(traceId)
+                        .details(e.getMessage())
+                        .build())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
+    }
+
+    @ExceptionHandler(AuthenticationCredentialsNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleAuthenticationCredentialsNotFoundException(AuthenticationCredentialsNotFoundException e) {
+        String traceId = getOrCreateTraceId();
+        log.warn("Authentication credentials not found: {}", e.getMessage());
+
+        ErrorResponse error = ErrorResponse.builder()
+                .error(ErrorResponse.ErrorDetail.builder()
+                        .code("UNAUTHORIZED")
+                        .message("Authentication credentials not found")
+                        .retryable(false)
+                        .traceId(traceId)
+                        .details(e.getMessage())
+                        .build())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
     }
 
     private String getOrCreateTraceId() {
