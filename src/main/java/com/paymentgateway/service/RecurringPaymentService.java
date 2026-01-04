@@ -3,6 +3,9 @@ package com.paymentgateway.service;
 import com.paymentgateway.domain.entity.SubscriptionEntity;
 import com.paymentgateway.domain.enums.*;
 import com.paymentgateway.domain.model.*;
+import com.paymentgateway.domain.statemachine.PaymentStateMachine;
+import com.paymentgateway.gateway.dto.PurchaseResponse;
+import com.paymentgateway.gateway.impl.AuthorizeNetGateway;
 import com.paymentgateway.repository.*;
 import com.paymentgateway.repository.mapper.*;
 import lombok.extern.slf4j.Slf4j;
@@ -13,6 +16,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
@@ -45,7 +50,25 @@ public class RecurringPaymentService {
     private OrderRepository orderRepository;
 
     @Autowired
+    private PaymentRepository paymentRepository;
+
+    @Autowired
     private OrderMapper orderMapper;
+
+    @Autowired
+    private PaymentMapper paymentMapper;
+
+    @Autowired(required = false)
+    private AuthorizeNetGateway authorizeNetGateway;
+
+    @Autowired
+    private PaymentTransactionRepository paymentTransactionRepository;
+
+    @Autowired
+    private PaymentTransactionMapper paymentTransactionMapper;
+
+    @Autowired
+    private PaymentStateMachine stateMachine;
 
     /**
      * Processes all subscriptions that are due for billing.
@@ -129,33 +152,125 @@ public class RecurringPaymentService {
                     .id(UUID.randomUUID())
                     .merchantOrderId(merchantOrderId)
                     .amount(subscription.getAmount())
-                    .description(subscription.getDescription() != null ? 
-                            subscription.getDescription() + " - Billing Cycle " + nextCycle : 
-                            "Subscription billing cycle " + nextCycle)
-                    .customer(new Customer(null, null)) // Customer info can be enhanced
+                    .description("Subscription billing: " + subscription.getDescription())
+                    .customer(new Customer(subscription.getCustomerId() + "@subscription.local", ""))
                     .status(OrderStatus.CREATED)
                     .createdAt(Instant.now())
                     .updatedAt(Instant.now())
                     .build();
 
-            var orderEntity = orderMapper.toEntity(order);
-            var savedOrderEntity = orderRepository.save(orderEntity);
-            order = orderMapper.toDomain(savedOrderEntity);
+            order = paymentOrchestratorService.createOrder(order);
+            log.info("Created order for subscription billing: orderId={}, merchantOrderId={}", 
+                    order.getId(), order.getMerchantOrderId());
 
-            // Create payment intent
-            String idempotencyKey = subscription.getId().toString() + "-cycle-" + nextCycle;
+            // Create payment for the order
+            String idempotencyKey = UUID.randomUUID().toString();
             Payment payment = paymentOrchestratorService.createPayment(
                     order.getId(),
                     PaymentType.PURCHASE,
                     subscription.getGateway(),
-                    idempotencyKey);
+                    idempotencyKey
+            );
+            log.info("Created payment for subscription billing: paymentId={}", payment.getId());
 
-            // Process purchase transaction
-            UUID traceIdForTransaction = UUID.randomUUID();
-            paymentOrchestratorService.processPurchase(
-                    payment.getId(),
-                    subscription.getPaymentMethodToken(),
-                    traceIdForTransaction);
+            // Process purchase using customer profile
+            PurchaseResponse gatewayResponse = authorizeNetGateway.purchaseWithCustomerProfile(
+                    subscription.getCustomerProfileId(),
+                    subscription.getPaymentProfileId(),
+                    subscription.getAmount().getAmount(),
+                    merchantOrderId,
+                    subscription.getDescription()
+            );
+
+            // CRITICAL: Process the transaction through orchestrator to update payment/order status
+            if (gatewayResponse.isSuccess()) {
+                log.info("Gateway purchase succeeded for subscription: {}, transactionId={}", 
+                        subscription.getMerchantSubscriptionId(), gatewayResponse.getGatewayTransactionId());
+                
+                // Create transaction record
+                PaymentTransaction transaction = PaymentTransaction.builder()
+                        .id(UUID.randomUUID())
+                        .paymentId(payment.getId())
+                        .transactionType(TransactionType.PURCHASE)
+                        .transactionState(TransactionState.SUCCESS)
+                        .amount(subscription.getAmount())
+                        .gatewayTransactionId(gatewayResponse.getGatewayTransactionId())
+                        .gatewayResponseCode(gatewayResponse.getResponseCode())
+                        .gatewayResponseMsg(gatewayResponse.getResponseMessage())
+                        .traceId(UUID.fromString(traceId))
+                        .createdAt(Instant.now())
+                        .build();
+
+                // Save transaction
+                var transactionEntity = paymentTransactionMapper.toEntity(transaction);
+                paymentTransactionRepository.save(transactionEntity);
+                
+                // Update payment status to CAPTURED
+                UUID finalPaymentId = payment.getId();
+                var paymentEntity = paymentRepository.findByIdWithLock(finalPaymentId)
+                        .orElseThrow(() -> new IllegalStateException("Payment not found: " + finalPaymentId));
+                Payment updatedPayment = paymentMapper.toDomain(paymentEntity);
+                
+                // Derive new status from transactions
+                var allTransactions = paymentTransactionRepository.findByPaymentIdOrderByCreatedAtAsc(finalPaymentId);
+                var transactions = paymentTransactionMapper.toDomainList(allTransactions);
+                PaymentStatus newPaymentStatus = stateMachine.derivePaymentStatus(updatedPayment, transactions);
+                
+                updatedPayment = updatedPayment.withStatus(newPaymentStatus);
+                paymentEntity = paymentMapper.toEntity(updatedPayment);
+                paymentRepository.save(paymentEntity);
+                
+                log.info("Updated payment status to: {}", newPaymentStatus);
+                
+                // Update order status to COMPLETED
+                UUID finalOrderId = order.getId();
+                var orderEntity = orderRepository.findById(finalOrderId)
+                        .orElseThrow(() -> new IllegalStateException("Order not found: " + finalOrderId));
+                Order updatedOrder = orderMapper.toDomain(orderEntity);
+                
+                OrderStatus newOrderStatus = deriveOrderStatus(newPaymentStatus);
+                updatedOrder = updatedOrder.withStatus(newOrderStatus);
+                orderEntity = orderMapper.toEntity(updatedOrder);
+                orderRepository.save(orderEntity);
+                
+                log.info("Updated order status to: {}", newOrderStatus);
+            } else {
+                log.error("Gateway purchase failed for subscription: {}, error={}", 
+                        subscription.getMerchantSubscriptionId(), gatewayResponse.getResponseMessage());
+                throw new RuntimeException("Subscription billing failed: " + gatewayResponse.getResponseMessage());
+            }
+
+            // Update subscription billing info
+            Instant nextBillingDate = calculateNextBillingDate(
+                    subscription.getNextBillingDate(),
+                    subscription.getInterval(),
+                    subscription.getIntervalCount()
+            );
+
+            Subscription updatedSubscription = Subscription.builder()
+                    .id(subscription.getId())
+                    .customerId(subscription.getCustomerId())
+                    .merchantSubscriptionId(subscription.getMerchantSubscriptionId())
+                    .amount(subscription.getAmount())
+                    .interval(subscription.getInterval())
+                    .intervalCount(subscription.getIntervalCount())
+                    .status(subscription.getStatus())
+                    .gateway(subscription.getGateway())
+                    .customerProfileId(subscription.getCustomerProfileId())
+                    .paymentProfileId(subscription.getPaymentProfileId())
+                    .startDate(subscription.getStartDate())
+                    .nextBillingDate(nextBillingDate)
+                    .endDate(subscription.getEndDate())
+                    .maxBillingCycles(subscription.getMaxBillingCycles())
+                    .currentBillingCycle(nextCycle)
+                    .description(subscription.getDescription())
+                    .idempotencyKey(subscription.getIdempotencyKey())
+                    .createdAt(subscription.getCreatedAt())
+                    .updatedAt(Instant.now())
+                    .build();
+
+            var updatedSubEntity = subscriptionMapper.toEntity(updatedSubscription);
+            subscriptionRepository.save(updatedSubEntity);
 
             // Create subscription payment record
             SubscriptionPayment subscriptionPayment = SubscriptionPayment.builder()
@@ -170,21 +285,47 @@ public class RecurringPaymentService {
                     .createdAt(Instant.now())
                     .build();
 
-            var subscriptionPaymentEntity = subscriptionPaymentMapper.toEntity(subscriptionPayment);
-            var savedSubscriptionPaymentEntity = subscriptionPaymentRepository.save(subscriptionPaymentEntity);
-            var savedSubscriptionPayment = subscriptionPaymentMapper.toDomain(savedSubscriptionPaymentEntity);
-
-            // Update subscription's next billing date and increment cycle
-            subscriptionService.updateNextBillingDate(subscription.getId());
+            var subPaymentEntity = subscriptionPaymentMapper.toEntity(subscriptionPayment);
+            subscriptionPaymentRepository.save(subPaymentEntity);
 
             log.info("Successfully processed subscription billing: {} (cycle: {})", 
                     subscription.getMerchantSubscriptionId(), nextCycle);
 
-            return savedSubscriptionPayment;
+            return subscriptionPayment;
 
         } finally {
             MDC.clear();
         }
+    }
+
+    private OrderStatus deriveOrderStatus(PaymentStatus paymentStatus) {
+        return switch (paymentStatus) {
+            case INITIATED -> OrderStatus.PAYMENT_INITIATED;
+            case AUTHORIZED, PARTIALLY_AUTHORIZED -> OrderStatus.PAYMENT_PENDING;
+            case CAPTURED -> OrderStatus.COMPLETED;
+            case FAILED -> OrderStatus.FAILED;
+            case CANCELLED -> OrderStatus.CANCELLED;
+        };
+    }
+
+    private Instant calculateNextBillingDate(Instant currentDate, RecurrenceInterval interval, Integer intervalCount) {
+        if (currentDate == null) {
+            currentDate = Instant.now();
+        }
+        if (intervalCount == null || intervalCount < 1) {
+            intervalCount = 1;
+        }
+
+        return switch (interval) {
+            case DAILY -> currentDate.plus(intervalCount, ChronoUnit.DAYS);
+            case WEEKLY -> currentDate.plus(intervalCount * 7L, ChronoUnit.DAYS);
+            case MONTHLY -> currentDate.atZone(ZoneId.systemDefault())
+                    .plusMonths(intervalCount)
+                    .toInstant();
+            case YEARLY -> currentDate.atZone(ZoneId.systemDefault())
+                    .plusYears(intervalCount)
+                    .toInstant();
+        };
     }
 
     /**

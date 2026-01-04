@@ -3,9 +3,12 @@ package com.paymentgateway.service;
 import com.paymentgateway.domain.enums.*;
 import com.paymentgateway.domain.model.Subscription;
 import com.paymentgateway.domain.valueobject.Money;
+import com.paymentgateway.gateway.impl.AuthorizeNetGateway;
 import com.paymentgateway.repository.*;
 import com.paymentgateway.repository.mapper.*;
 import lombok.extern.slf4j.Slf4j;
+import net.authorize.api.contract.v1.CustomerProfilePaymentType;
+
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -29,12 +32,15 @@ public class SubscriptionService {
     @Autowired
     private SubscriptionMapper subscriptionMapper;
 
+    @Autowired(required = false)
+    private AuthorizeNetGateway authorizeNetGateway;
+
     /**
      * Creates a new subscription.
      */
     @Transactional
     public Subscription createSubscription(
-            UUID customerId,
+            String customerId,
             String merchantSubscriptionId,
             Money amount,
             RecurrenceInterval interval,
@@ -52,27 +58,54 @@ public class SubscriptionService {
         MDC.put("operation", "createSubscription");
         MDC.put("merchantSubscriptionId", merchantSubscriptionId);
 
-        try {
-            log.info("Creating subscription: {}", merchantSubscriptionId);
+        log.info("createSubscription entry merchantSubscriptionId={} customerId={} idempotencyKey={}",
+                merchantSubscriptionId, customerId, idempotencyKey);
+        log.debug("createSubscription params: amount={}, interval={}, intervalCount={}, gateway={}",
+                amount, interval, intervalCount, gateway);
 
+        try {
             // Check idempotency
             if (subscriptionRepository.existsByIdempotencyKey(idempotencyKey)) {
                 var entity = subscriptionRepository.findByIdempotencyKey(idempotencyKey)
                         .orElseThrow(() -> new IllegalStateException("Subscription exists but not found"));
-                log.info("Subscription already exists with idempotency key: {}", idempotencyKey);
+                log.info("Idempotent subscription found for key={}", idempotencyKey);
+                log.debug("Returning existing subscription entity id={}", entity.getId());
                 return subscriptionMapper.toDomain(entity);
+            } else {
+                log.debug("No existing subscription for idempotencyKey={}", idempotencyKey);
             }
 
             // Check uniqueness of merchant subscription ID
             if (subscriptionRepository.existsByMerchantSubscriptionId(merchantSubscriptionId)) {
+                log.warn("Duplicate merchantSubscriptionId detected: {}", merchantSubscriptionId);
                 throw new IllegalArgumentException("Subscription with merchantSubscriptionId already exists: " + merchantSubscriptionId);
+            } else {
+                log.debug("merchantSubscriptionId is unique: {}", merchantSubscriptionId);
             }
 
             // Use current time if start date is not provided
             Instant actualStartDate = startDate != null ? startDate : Instant.now();
-            
+            log.debug("Using startDate={}, computing next billing date", actualStartDate);
+
             // Calculate next billing date
             Instant nextBillingDate = calculateNextBillingDate(actualStartDate, interval, intervalCount);
+            log.debug("Calculated nextBillingDate={}", nextBillingDate);
+
+            // Create Customer Profile from Accept.js token for Authorize.Net
+            CustomerProfilePaymentType customerProfilePaymentType;
+            if (gateway == Gateway.AUTHORIZE_NET) {
+                if (authorizeNetGateway == null) {
+                    log.error("AuthorizeNetGateway not available while creating customer profile");
+                    throw new IllegalStateException("AuthorizeNetGateway is not available");
+                }
+                String customerIdStr = customerId != null ? customerId : merchantSubscriptionId;
+                log.info("Creating customer profile for customerIdStr={}", customerIdStr);
+                customerProfilePaymentType = authorizeNetGateway.createCustomerProfile(paymentMethodToken, customerIdStr);
+                log.info("Created Customer Profile for subscription: profileId={}, paymentId={}", customerProfilePaymentType.getCustomerProfileId(), customerProfilePaymentType.getPaymentProfile().getPaymentProfileId());
+            } else {
+                log.error("Unsupported gateway for customer profile creation: {}", gateway);
+                throw new UnsupportedOperationException("Customer Profile creation is only supported for Authorize.Net gateway");
+            }
 
             Subscription subscription = Subscription.builder()
                     .id(UUID.randomUUID())
@@ -83,7 +116,8 @@ public class SubscriptionService {
                     .intervalCount(intervalCount != null ? intervalCount : 1)
                     .status(SubscriptionStatus.ACTIVE)
                     .gateway(gateway)
-                    .paymentMethodToken(paymentMethodToken)
+                    .customerProfileId(customerProfilePaymentType.getCustomerProfileId())
+                    .paymentProfileId(customerProfilePaymentType.getPaymentProfile().getPaymentProfileId())
                     .startDate(actualStartDate)
                     .nextBillingDate(nextBillingDate)
                     .endDate(endDate)
@@ -95,11 +129,14 @@ public class SubscriptionService {
                     .updatedAt(Instant.now())
                     .build();
 
+            log.debug("Persisting subscription entity for merchantSubscriptionId={} customerProfileId={}, paymentProfileId={}",
+                    merchantSubscriptionId, customerProfilePaymentType.getCustomerProfileId(),customerProfilePaymentType.getPaymentProfile().getPaymentProfileId());
             var entity = subscriptionMapper.toEntity(subscription);
             var savedEntity = subscriptionRepository.save(entity);
             var saved = subscriptionMapper.toDomain(savedEntity);
 
-            log.info("Subscription created successfully: {} (id: {})", merchantSubscriptionId, saved.getId());
+            log.info("Subscription created successfully: merchantSubscriptionId={} id={}", merchantSubscriptionId, saved.getId());
+            log.debug("Saved subscription full details: {}", saved);
             return saved;
 
         } finally {
@@ -128,7 +165,7 @@ public class SubscriptionService {
     /**
      * Gets all subscriptions for a customer.
      */
-    public List<Subscription> getSubscriptionsByCustomerId(UUID customerId) {
+    public List<Subscription> getSubscriptionsByCustomerId(String customerId) {
         return subscriptionMapper.toDomainList(subscriptionRepository.findByCustomerId(customerId));
     }
 

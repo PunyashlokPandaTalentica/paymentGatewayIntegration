@@ -59,13 +59,13 @@ class RecurringPaymentIntegrationTest {
     @MockBean
     private RetryableGatewayService retryableGatewayService;
 
-    private UUID testCustomerId;
+    private String testCustomerId;
     private Money testAmount;
     private String testPaymentMethodToken;
 
     @BeforeEach
     void setUp() {
-        testCustomerId = UUID.randomUUID();
+        testCustomerId = UUID.randomUUID().toString();
         testAmount = new Money(BigDecimal.valueOf(29.99), Currency.getInstance("USD"));
         testPaymentMethodToken = "tok_visa_4242";
 

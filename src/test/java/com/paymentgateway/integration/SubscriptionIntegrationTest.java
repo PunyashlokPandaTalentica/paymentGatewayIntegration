@@ -35,13 +35,13 @@ class SubscriptionIntegrationTest {
     @Autowired
     private SubscriptionRepository subscriptionRepository;
 
-    private UUID testCustomerId;
+    private String testCustomerId;
     private Money testAmount;
     private String testPaymentMethodToken;
 
     @BeforeEach
     void setUp() {
-        testCustomerId = UUID.randomUUID();
+        testCustomerId = UUID.randomUUID().toString();
         testAmount = new Money(BigDecimal.valueOf(29.99), Currency.getInstance("USD"));
         testPaymentMethodToken = "tok_visa_4242";
     }
@@ -274,8 +274,8 @@ class SubscriptionIntegrationTest {
 
     @Test
     void testGetSubscriptionsByCustomerId() {
-        UUID customerId1 = UUID.randomUUID();
-        UUID customerId2 = UUID.randomUUID();
+        String customerId1 = UUID.randomUUID().toString();
+        String customerId2 = UUID.randomUUID().toString();
 
         // Create subscriptions for customer 1
         subscriptionService.createSubscription(

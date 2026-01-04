@@ -1,0 +1,1 @@
+alter table subscriptions alter column customer_id TYPE VARCHAR(255);

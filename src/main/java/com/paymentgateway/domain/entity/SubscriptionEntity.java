@@ -29,8 +29,8 @@ public class SubscriptionEntity {
     @Column(name = "id", columnDefinition = "UUID")
     private UUID id;
 
-    @Column(name = "customer_id", nullable = false, columnDefinition = "UUID")
-    private UUID customerId;
+    @Column(name = "customer_id", nullable = false)
+    private String customerId;
 
     @Column(name = "merchant_subscription_id", unique = true, nullable = false, length = 100)
     private String merchantSubscriptionId;
@@ -56,8 +56,8 @@ public class SubscriptionEntity {
     @Column(name = "gateway", nullable = false, length = 30)
     private Gateway gateway;
 
-    @Column(name = "payment_method_token", nullable = false, length = 255)
-    private String paymentMethodToken;
+    @Column(name = "customer_profile_id", nullable = false, length = 50)
+    private String customerProfileId;
 
     @Column(name = "start_date", nullable = false)
     private Instant startDate;
@@ -85,5 +85,9 @@ public class SubscriptionEntity {
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    // Add paymentProfileId column to persist Authorize.Net payment profile id
+    @Column(name = "payment_profile_id")
+    private String paymentProfileId;
 }
 

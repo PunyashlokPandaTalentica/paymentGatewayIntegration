@@ -18,7 +18,7 @@ import java.util.UUID;
 public interface SubscriptionRepository extends JpaRepository<SubscriptionEntity, UUID> {
     Optional<SubscriptionEntity> findByMerchantSubscriptionId(String merchantSubscriptionId);
     Optional<SubscriptionEntity> findByIdempotencyKey(String idempotencyKey);
-    List<SubscriptionEntity> findByCustomerId(UUID customerId);
+    List<SubscriptionEntity> findByCustomerId(String customerId);
     List<SubscriptionEntity> findByStatus(SubscriptionStatus status);
     
     @Query("SELECT s FROM SubscriptionEntity s WHERE s.status = :status AND s.nextBillingDate <= :date")

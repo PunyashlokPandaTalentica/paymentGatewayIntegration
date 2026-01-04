@@ -41,10 +41,13 @@ public class SubscriptionController {
             @RequestHeader(value = "Idempotency-Key", required = true) String idempotencyKey,
             @Valid @RequestBody CreateSubscriptionRequest request) {
 
-        log.info("Creating subscription: {}", request.getMerchantSubscriptionId());
+        log.info("CreateSubscription called merchantSubscriptionId={} idempotencyKey={}", request.getMerchantSubscriptionId(), idempotencyKey);
+        log.debug("CreateSubscription request raw: {}", request);
 
         // Sanitize input to prevent XSS and injection attacks
         CreateSubscriptionRequest sanitizedRequest = sanitizationService.sanitize(request);
+        log.debug("CreateSubscription request sanitized: merchantSubscriptionId={}, customerId={}",
+                sanitizedRequest.getMerchantSubscriptionId(), sanitizedRequest.getCustomerId());
 
         Subscription subscription = subscriptionService.createSubscription(
                 sanitizedRequest.getCustomerId(),
@@ -59,6 +62,9 @@ public class SubscriptionController {
                 sanitizedRequest.getStartDate(),
                 sanitizedRequest.getEndDate(),
                 sanitizedRequest.getMaxBillingCycles());
+
+        log.info("Subscription created via controller: id={}, merchantSubscriptionId={}", subscription.getId(), subscription.getMerchantSubscriptionId());
+        log.debug("Created subscription details: {}", subscription);
 
         SubscriptionResponse response = SubscriptionResponse.builder()
                 .subscriptionId(subscription.getId())
@@ -79,6 +85,7 @@ public class SubscriptionController {
     @GetMapping("/{subscriptionId}")
     @Operation(summary = "Get subscription", description = "Retrieves subscription details by ID")
     public ResponseEntity<SubscriptionResponse> getSubscription(@PathVariable String subscriptionId) {
+        log.info("GetSubscription called for subscriptionId={}", subscriptionId);
         UUID id = UUID.fromString(sanitizationService.validateUuid(subscriptionId, "subscriptionId"));
         Subscription subscription = subscriptionService.getSubscriptionById(id);
 
@@ -95,14 +102,19 @@ public class SubscriptionController {
                 .createdAt(subscription.getCreatedAt())
                 .build();
 
+        log.info("Subscription retrieved: id={}, merchantSubscriptionId={}", subscription.getId(), subscription.getMerchantSubscriptionId());
         return ResponseEntity.ok(response);
     }
 
     @GetMapping("/customer/{customerId}")
     @Operation(summary = "Get customer subscriptions", description = "Retrieves all subscriptions for a customer")
     public ResponseEntity<List<SubscriptionResponse>> getCustomerSubscriptions(@PathVariable String customerId) {
-        UUID id = UUID.fromString(sanitizationService.validateUuid(customerId, "customerId"));
-        List<Subscription> subscriptions = subscriptionService.getSubscriptionsByCustomerId(id);
+        log.info("GetCustomerSubscriptions called for customerId={}", customerId);
+        String sanitizedCustomerId = customerId;
+        log.debug("Sanitized customerId={}", sanitizedCustomerId);
+
+        List<Subscription> subscriptions = subscriptionService.getSubscriptionsByCustomerId(sanitizedCustomerId);
+        log.info("Found {} subscriptions for customerId={}", subscriptions.size(), sanitizedCustomerId);
 
         List<SubscriptionResponse> responses = subscriptions.stream()
                 .map(s -> SubscriptionResponse.builder()
@@ -119,12 +131,14 @@ public class SubscriptionController {
                         .build())
                 .collect(Collectors.toList());
 
+        log.debug("Returning {} SubscriptionResponse items for customerId={}", responses.size(), sanitizedCustomerId);
         return ResponseEntity.ok(responses);
     }
 
     @PostMapping("/{subscriptionId}/cancel")
     @Operation(summary = "Cancel subscription", description = "Cancels an active subscription")
     public ResponseEntity<SubscriptionResponse> cancelSubscription(@PathVariable String subscriptionId) {
+        log.info("CancelSubscription called for subscriptionId={}", subscriptionId);
         UUID id = UUID.fromString(sanitizationService.validateUuid(subscriptionId, "subscriptionId"));
         Subscription subscription = subscriptionService.cancelSubscription(id);
 
@@ -141,12 +155,14 @@ public class SubscriptionController {
                 .createdAt(subscription.getCreatedAt())
                 .build();
 
+        log.info("Subscription canceled: id={}, merchantSubscriptionId={}", subscription.getId(), subscription.getMerchantSubscriptionId());
         return ResponseEntity.ok(response);
     }
 
     @PostMapping("/{subscriptionId}/pause")
     @Operation(summary = "Pause subscription", description = "Pauses an active subscription")
     public ResponseEntity<SubscriptionResponse> pauseSubscription(@PathVariable String subscriptionId) {
+        log.info("PauseSubscription called for subscriptionId={}", subscriptionId);
         UUID id = UUID.fromString(sanitizationService.validateUuid(subscriptionId, "subscriptionId"));
         Subscription subscription = subscriptionService.pauseSubscription(id);
 
@@ -163,12 +179,14 @@ public class SubscriptionController {
                 .createdAt(subscription.getCreatedAt())
                 .build();
 
+        log.info("Subscription paused: id={}, merchantSubscriptionId={}", subscription.getId(), subscription.getMerchantSubscriptionId());
         return ResponseEntity.ok(response);
     }
 
     @PostMapping("/{subscriptionId}/resume")
     @Operation(summary = "Resume subscription", description = "Resumes a paused subscription")
     public ResponseEntity<SubscriptionResponse> resumeSubscription(@PathVariable String subscriptionId) {
+        log.info("ResumeSubscription called for subscriptionId={}", subscriptionId);
         UUID id = UUID.fromString(sanitizationService.validateUuid(subscriptionId, "subscriptionId"));
         Subscription subscription = subscriptionService.resumeSubscription(id);
 
@@ -185,12 +203,14 @@ public class SubscriptionController {
                 .createdAt(subscription.getCreatedAt())
                 .build();
 
+        log.info("Subscription resumed: id={}, merchantSubscriptionId={}", subscription.getId(), subscription.getMerchantSubscriptionId());
         return ResponseEntity.ok(response);
     }
 
     @PostMapping("/{subscriptionId}/trigger-billing")
     @Operation(summary = "Trigger billing", description = "Manually triggers billing for a subscription")
     public ResponseEntity<?> triggerBilling(@PathVariable String subscriptionId) {
+        log.info("TriggerBilling called for subscriptionId={}", subscriptionId);
         try {
             UUID id = UUID.fromString(sanitizationService.validateUuid(subscriptionId, "subscriptionId"));
             SubscriptionPayment payment = recurringPaymentService.triggerBilling(id);
@@ -207,6 +227,7 @@ public class SubscriptionController {
                     .createdAt(payment.getCreatedAt())
                     .build();
 
+            log.info("Billing triggered successfully: paymentId={}, amount={}", payment.getId(), payment.getAmount());
             return ResponseEntity.ok(response);
         } catch (IllegalStateException e) {
             log.warn("Cannot trigger billing: {}", e.getMessage());

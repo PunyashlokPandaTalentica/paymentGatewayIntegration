@@ -17,14 +17,15 @@ import java.util.UUID;
 @Builder
 public class Subscription {
     UUID id;
-    UUID customerId;              // Reference to customer (can be email or external ID)
+    String customerId;              // Reference to customer (can be email or external ID)
     String merchantSubscriptionId; // Merchant's unique subscription identifier
     Money amount;                  // Recurring payment amount
     RecurrenceInterval interval;   // How often to charge
     Integer intervalCount;         // Number of intervals (e.g., every 2 months)
     SubscriptionStatus status;
     Gateway gateway;
-    String paymentMethodToken;    // Tokenized payment method for recurring charges
+    String customerProfileId;     // Authorize.Net Customer Profile ID for recurring charges
+    String paymentProfileId;     // Authorize.Net Customer Payment Profile ID for recurring charges
     Instant startDate;            // When subscription starts
     Instant nextBillingDate;      // Next scheduled billing date
     Instant endDate;              // Optional end date (null for indefinite)
@@ -45,7 +46,8 @@ public class Subscription {
                 .intervalCount(this.intervalCount)
                 .status(newStatus)
                 .gateway(this.gateway)
-                .paymentMethodToken(this.paymentMethodToken)
+                .customerProfileId(this.customerProfileId)
+                .paymentProfileId(this.paymentProfileId)
                 .startDate(this.startDate)
                 .nextBillingDate(this.nextBillingDate)
                 .endDate(this.endDate)
@@ -68,7 +70,8 @@ public class Subscription {
                 .intervalCount(this.intervalCount)
                 .status(this.status)
                 .gateway(this.gateway)
-                .paymentMethodToken(this.paymentMethodToken)
+                .customerProfileId(this.customerProfileId)
+                .paymentProfileId(this.paymentProfileId)
                 .startDate(this.startDate)
                 .nextBillingDate(nextBillingDate)
                 .endDate(this.endDate)
@@ -91,7 +94,8 @@ public class Subscription {
                 .intervalCount(this.intervalCount)
                 .status(this.status)
                 .gateway(this.gateway)
-                .paymentMethodToken(this.paymentMethodToken)
+                .customerProfileId(this.customerProfileId)
+                .paymentProfileId(this.paymentProfileId)
                 .startDate(this.startDate)
                 .nextBillingDate(this.nextBillingDate)
                 .endDate(this.endDate)

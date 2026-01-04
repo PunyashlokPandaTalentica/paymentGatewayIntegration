@@ -60,12 +60,12 @@ class SubscriptionE2ETest {
     @MockBean
     private RetryableGatewayService retryableGatewayService;
 
-    private UUID testCustomerId;
+    private String testCustomerId;
     private Money testAmount;
 
     @BeforeEach
     void setUp() {
-        testCustomerId = UUID.randomUUID();
+        testCustomerId = UUID.randomUUID().toString();
         testAmount = new Money(BigDecimal.valueOf(29.99), Currency.getInstance("USD"));
 
         // Reset mocks
@@ -97,7 +97,7 @@ class SubscriptionE2ETest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.subscriptionId").exists())
                 .andExpect(jsonPath("$.merchantSubscriptionId").value(request.getMerchantSubscriptionId()))
-                .andExpect(jsonPath("$.customerId").value(testCustomerId.toString()))
+                .andExpect(jsonPath("$.customerId").value(testCustomerId))
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.interval").value("MONTHLY"))
                 .andExpect(jsonPath("$.nextBillingDate").exists());
@@ -168,7 +168,7 @@ class SubscriptionE2ETest {
 
     @Test
     void testGetCustomerSubscriptions_API() throws Exception {
-        UUID customerId = UUID.randomUUID();
+        String customerId = UUID.randomUUID().toString();
 
         // Create multiple subscriptions for the customer
         subscriptionService.createSubscription(

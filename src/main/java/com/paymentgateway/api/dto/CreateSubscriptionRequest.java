@@ -9,14 +9,13 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Value;
 
 import java.time.Instant;
-import java.util.UUID;
 
 @Value
 @Schema(description = "Request to create a subscription")
 public class CreateSubscriptionRequest {
-    @NotNull
-    @Schema(description = "Customer ID", example = "550e8400-e29b-41d4-a716-446655440000", required = true)
-    UUID customerId;
+    @NotBlank
+    @Schema(description = "Customer ID (arbitrary string identifier)", example = "customerId1", required = true)
+    String customerId;
 
     @NotBlank
     @Schema(description = "Merchant's unique subscription identifier", example = "SUB-12345", required = true)
@@ -49,7 +48,7 @@ public class CreateSubscriptionRequest {
     @Schema(description = "Subscription end date (optional, for fixed-term subscriptions)")
     Instant endDate;
 
-    @Schema(description = "Maximum number of billing cycles (optional, for limited subscriptions)")
+    @Schema(description = "Maximum number of billing cycles (optional, for limited subscriptions)", example = "10")
     Integer maxBillingCycles;
 }
 

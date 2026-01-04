@@ -21,7 +21,7 @@ public class SubscriptionResponse {
     String merchantSubscriptionId;
 
     @Schema(description = "Customer ID", example = "550e8400-e29b-41d4-a716-446655440000")
-    UUID customerId;
+    String customerId;
 
     @Schema(description = "Recurring payment amount")
     Money amount;
