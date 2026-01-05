@@ -13,6 +13,13 @@ The system implements sophisticated patterns including:
 - **Retry strategies** with exponential backoff
 - **OAuth2 JWT authentication** via Auth0
 
+### Screenshots -- 
+![Subscriptions](screenshots/subscriptions.png)
+![Payment Transactions](screenshots/payment_transactions.png)
+![Auth.Net](screenshots/authorize_net_transactions.png)
+
+
+
 ## Quick Start
 
 ### Option 1: Docker Compose (Recommended)
