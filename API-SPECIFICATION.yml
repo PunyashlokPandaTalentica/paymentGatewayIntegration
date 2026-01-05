@@ -1,0 +1,694 @@
+openapi: 3.0.0
+info:
+  title: Payment Orchestration Service API
+  description: |
+    A production-ready Single-Tenant Payment Orchestration Service with 
+    Authorize.Net integration, webhook handling, and subscription support.
+  version: 1.0.0
+  contact:
+    name: Payment Team
+    url: https://payment-gateway.example.com
+    email: payments@example.com
+  license:
+    name: Private
+    url: https://example.com/license
+
+servers:
+  - url: http://localhost:8080
+    description: Local Development
+  - url: https://api.paymentgateway.example.com
+    description: Production
+
+security:
+  - BearerAuth: []
+
+paths:
+  /v1/orders:
+    post:
+      tags:
+        - Orders
+      summary: Create a new order
+      description: |
+        Creates a new order with the specified merchant order ID, amount, 
+        description, and customer information. Orders represent the business 
+        intent for a payment and must be created before payments can be processed.
+      operationId: createOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: Order created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          description: Invalid request - missing required fields or invalid data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - missing or invalid authentication
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/orders/{orderId}:
+    get:
+      tags:
+        - Orders
+      summary: Get order by ID
+      description: |
+        Retrieves the details of an order by its unique identifier. 
+        Returns the order status, amount, creation timestamp, and other 
+        relevant information.
+      operationId: getOrder
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Unique identifier of the order
+      responses:
+        '200':
+          description: Order retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '404':
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/orders/{orderId}/payments:
+    post:
+      tags:
+        - Payments
+      summary: Create a payment for an order
+      description: |
+        Creates a new payment for the specified order. A payment represents 
+        the payment lifecycle and must be created before transactions can be 
+        processed. The payment specifies the payment method, flow type 
+        (purchase or authorize), and gateway to use. Idempotency is supported 
+        via the Idempotency-Key header.
+      operationId: createPayment
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Unique identifier of the order
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+          description: |
+            Idempotency key to prevent duplicate payments. If not provided, 
+            a new key will be generated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentRequest'
+      responses:
+        '201':
+          description: Payment created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '400':
+          description: |
+            Invalid request - order not found, invalid payment configuration, 
+            or duplicate idempotency key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/payments/{paymentId}/transactions/purchase:
+    post:
+      tags:
+        - Transactions
+      summary: Process a purchase transaction
+      description: |
+        Creates and processes a purchase transaction for the specified payment. 
+        A purchase transaction immediately captures the funds from the payment 
+        method. This is a one-step process that combines authorization and capture.
+      operationId: purchase
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Unique identifier of the payment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionRequest'
+      responses:
+        '201':
+          description: Purchase transaction created and processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+        '400':
+          description: |
+            Invalid request - payment ID format invalid, payment not found, 
+            or invalid payment method token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/payments/{paymentId}/transactions/authorize:
+    post:
+      tags:
+        - Transactions
+      summary: Authorize a payment (no immediate capture)
+      description: |
+        Creates an authorization transaction for the specified payment. 
+        Authorization reserves funds but does not capture them immediately. 
+        A subsequent capture operation is required to complete the transaction.
+      operationId: authorize
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Unique identifier of the payment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionRequest'
+      responses:
+        '201':
+          description: Authorization transaction created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/payments/{paymentId}/transactions/{transactionId}/capture:
+    post:
+      tags:
+        - Transactions
+      summary: Capture an authorized payment
+      description: |
+        Captures funds from a previously authorized transaction. 
+        This completes the payment processing.
+      operationId: capture
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: transactionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionRequest'
+      responses:
+        '201':
+          description: Capture transaction created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/payments/{paymentId}/transactions:
+    get:
+      tags:
+        - Transactions
+      summary: Get all transactions for a payment
+      description: |
+        Retrieves all transactions associated with the specified payment. 
+        Returns a list of transactions including purchase, authorization, 
+        and capture transactions with their current status and details.
+      operationId: getTransactions
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of transactions retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TransactionResponse'
+        '404':
+          description: Payment not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/subscriptions:
+    post:
+      tags:
+        - Subscriptions
+      summary: Create a new subscription
+      description: |
+        Creates a subscription for recurring/recurring payments. 
+        Automatically processes billing at specified intervals.
+      operationId: createSubscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSubscriptionRequest'
+      responses:
+        '201':
+          description: Subscription created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/subscriptions/{subscriptionId}:
+    get:
+      tags:
+        - Subscriptions
+      summary: Get subscription by ID
+      operationId: getSubscription
+      parameters:
+        - name: subscriptionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Subscription retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+        '404':
+          description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/subscriptions/{subscriptionId}/cancel:
+    post:
+      tags:
+        - Subscriptions
+      summary: Cancel a subscription
+      operationId: cancelSubscription
+      parameters:
+        - name: subscriptionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Subscription cancelled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+        '404':
+          description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/webhooks/authorize-net:
+    post:
+      tags:
+        - Webhooks
+      summary: Receive Authorize.Net webhooks
+      description: |
+        Endpoint for receiving and processing webhook events from Authorize.Net. 
+        Webhooks are validated with HMAC-SHA512 signatures and processed asynchronously.
+      operationId: receiveWebhook
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookRequest'
+      responses:
+        '200':
+          description: Webhook received and queued for processing
+        '400':
+          description: Invalid webhook signature
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    CreateOrderRequest:
+      type: object
+      required:
+        - merchantOrderId
+        - amount
+        - customer
+      properties:
+        merchantOrderId:
+          type: string
+          maxLength: 100
+          description: Merchant's unique order identifier
+        amount:
+          $ref: '#/components/schemas/Money'
+        description:
+          type: string
+          maxLength: 500
+          description: Order description
+        customer:
+          $ref: '#/components/schemas/Customer'
+
+    OrderResponse:
+      type: object
+      properties:
+        orderId:
+          type: string
+          format: uuid
+        merchantOrderId:
+          type: string
+        amount:
+          $ref: '#/components/schemas/Money'
+        status:
+          type: string
+          enum: [CREATED, PAYMENT_PENDING, PAID, FAILED, CANCELLED]
+        createdAt:
+          type: string
+          format: date-time
+
+    CreatePaymentRequest:
+      type: object
+      required:
+        - flow
+        - gateway
+        - paymentMethodToken
+      properties:
+        flow:
+          type: string
+          enum: [PURCHASE, AUTHORIZE]
+          description: Payment flow type
+        gateway:
+          type: string
+          enum: [AUTHORIZE_NET]
+          description: Payment gateway
+        paymentMethodToken:
+          type: string
+          description: Payment method token from gateway
+
+    PaymentResponse:
+      type: object
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [INITIATED, AUTHORIZED, CAPTURED, SETTLED, DECLINED, FAILED]
+        flow:
+          type: string
+          enum: [PURCHASE, AUTHORIZE]
+
+    TransactionRequest:
+      type: object
+      required:
+        - amount
+      properties:
+        amount:
+          $ref: '#/components/schemas/Money'
+
+    TransactionResponse:
+      type: object
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+        paymentId:
+          type: string
+          format: uuid
+        transactionType:
+          type: string
+          enum: [PURCHASE, AUTHORIZATION, CAPTURE]
+        state:
+          type: string
+          enum: [SUBMITTED, AUTHORIZED, SETTLED, DECLINED, VOIDED]
+        amount:
+          $ref: '#/components/schemas/Money'
+        authorizationCode:
+          type: string
+        transactionRefId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateSubscriptionRequest:
+      type: object
+      required:
+        - customerId
+        - merchantSubscriptionId
+        - amount
+        - interval
+        - paymentMethodToken
+        - gateway
+      properties:
+        customerId:
+          type: string
+        merchantSubscriptionId:
+          type: string
+        amount:
+          $ref: '#/components/schemas/Money'
+        interval:
+          type: string
+          enum: [DAILY, WEEKLY, MONTHLY, YEARLY]
+        intervalCount:
+          type: integer
+          default: 1
+        paymentMethodToken:
+          type: string
+        gateway:
+          type: string
+          enum: [AUTHORIZE_NET]
+        description:
+          type: string
+        idempotencyKey:
+          type: string
+        startDate:
+          type: string
+          format: date-time
+        maxBillingCycles:
+          type: integer
+
+    SubscriptionResponse:
+      type: object
+      properties:
+        subscriptionId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+        merchantSubscriptionId:
+          type: string
+        amount:
+          $ref: '#/components/schemas/Money'
+        interval:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, PAUSED, CANCELLED, EXPIRED]
+        nextBillingDate:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    Money:
+      type: object
+      required:
+        - value
+        - currency
+      properties:
+        value:
+          type: number
+          format: decimal
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          description: ISO 4217 currency code
+
+    Customer:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+
+    WebhookRequest:
+      type: object
+      required:
+        - eventId
+        - eventType
+        - payload
+      properties:
+        eventId:
+          type: string
+          description: Authorize.Net event ID
+        eventType:
+          type: string
+          description: Authorize.Net event type
+        payload:
+          type: object
+          additionalProperties: true
+        signature:
+          type: string
+          description: HMAC-SHA512 signature
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            retryable:
+              type: boolean
+            traceId:
+              type: string
+              format: uuid
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Auth0 JWT token
